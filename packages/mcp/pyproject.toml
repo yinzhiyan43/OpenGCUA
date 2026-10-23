@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opengcua-mcp"
+version = "0.1.0"
+description = "Stateful local MCP tools for the OpenGCUA macOS SDK"
+requires-python = ">=3.11,<3.15"
+dependencies = ["mcp==1.30.0", "qwen-intelligence-sdk==0.3.1"]
+
+[project.scripts]
+opengcua-mcp = "opengcua_mcp.server:main"
+
+[tool.setuptools.packages.find]
+include = ["opengcua_mcp*"]
