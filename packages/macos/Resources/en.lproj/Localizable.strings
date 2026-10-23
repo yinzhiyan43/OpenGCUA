@@ -627,3 +627,12 @@
 "安装后将重新启动 OpenGCUA。" = "OpenGCUA will relaunch after installation.";
 "安装更新" = "Install Update";
 "稍后" = "Later";
+
+/* Bundled MCP integration. */
+"通过 MCP 使用 OpenGCUA 的查看、点击、输入和滚动能力。无需额外模型密钥。" = "Use OpenGCUA observation, click, typing and scrolling tools through MCP. No additional model key is needed.";
+"正在连接…" = "Connecting…";
+"连接到 Codex" = "Connect to Codex";
+"共用安装与权限" = "Shared installation and permissions";
+"MCP 已内置于本应用，与桌面功能共用 OpenGCUA 的辅助功能和屏幕录制权限。更新应用时一并更新。" = "MCP is built into this app and shares OpenGCUA’s Accessibility and Screen Recording permissions with desktop tasks. App updates include MCP.";
+"Codex 的工具操作确认由 Codex 管理。完成任务后释放会话，以便其他任务使用电脑。" = "Codex manages tool approvals. Release the session after each task so other tasks can use the Mac.";
+"已接入 Codex。重新打开聊天或重启 Codex 以加载工具。" = "Connected to Codex. Reopen a chat or restart Codex to load the tools.";

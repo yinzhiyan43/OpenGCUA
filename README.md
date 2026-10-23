@@ -247,9 +247,9 @@ It has adapters for macOS, Android, browsers, and Linux, built on a Rust core wi
 The [source setup above](#quick-start) installs it. The package is `qwen-intelligence-sdk`, imported as `qwen_intelligence`
 (`mai_ui` is the same API under its internal name). See [`packages/sdk/`](packages/sdk/) and the [examples](packages/sdk/examples/src/).
 
-For Codex, the [local MCP adapter](packages/mcp/) exposes stateful macOS observation
-and input tools using the SDK and the app's signed driver. Run
-`bash packages/mcp/install_codex.sh` to install an independent runtime and register it.
+For Codex, the [bundled MCP adapter](packages/mcp/) exposes stateful macOS observation
+and input tools through OpenGCUA.app, sharing its installation and system permissions.
+Connect in **Settings → MCP**, or run `bash packages/mcp/install_codex.sh`.
 
 <a name="open-stack"></a>
 

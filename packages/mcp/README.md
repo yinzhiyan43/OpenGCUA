@@ -1,109 +1,118 @@
 # OpenGCUA MCP for Codex
 
-Expose the OpenGCUA SDK as local MCP tools. Codex owns reasoning and approvals;
-the SDK owns observations, target validation and native actions. No extra model
-API key is needed. This adapter currently supports macOS, including browser apps
-through their native accessibility interfaces; it does not wrap Playwright APIs.
+The macOS app includes the MCP server, Python runtime, SDK and signed driver.
+Codex supplies reasoning and tool approvals; OpenGCUA supplies observations and
+native input. No additional model key or separate Python installation is needed.
 
 ## Install and connect
 
-Requirements: Apple Silicon Mac, macOS 14+, `uv`, Rust/Cargo and Xcode tools for
-the SDK build, Codex CLI, and an installed OpenGCUA 0.3.1 app with its signed
-CuaDriver 0.36.0 companion.
-
-From this repository:
+Install a build of OpenGCUA.app that includes MCP. In **Settings → MCP**, click
+**Connect to Codex**. The Codex CLI must be installed. Alternatively:
 
 ```bash
+/Applications/OpenGCUA.app/Contents/MacOS/OpenGCUA --install-codex-mcp
+# Or, from this repository:
 bash packages/mcp/install_codex.sh
 ```
 
-The installer keeps its Python environment outside the checkout at
-`~/.local/share/opengcua-mcp/.venv`. Set `OPENGCUA_MCP_HOME` to choose another
-directory. SDK and MCP code are installed as packages, not editable imports.
-After changing the source, run the installer again to deploy the changes.
-
-The script adds only the `opengcua` server entry in Codex's shared configuration:
+Set `OPENGCUA_APP` when running the script if the app is installed elsewhere.
+Registration replaces only the `opengcua` entry in Codex's shared configuration:
 
 ```toml
 [mcp_servers.opengcua]
-command = "/absolute/path/to/opengcua-mcp/.venv/bin/python"
-args = ["-m", "opengcua_mcp"]
+command = "/Applications/OpenGCUA.app/Contents/MacOS/OpenGCUA"
+args = ["--mcp"]
 ```
 
-It does not change approval or sandbox settings. See
-[Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
-Reopen the chat/client if the existing tool catalog has not refreshed.
+This command also works with other stdio MCP clients. It does not change Codex
+approval or sandbox settings. See [Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+Reopen the chat/client if the tool catalog has not refreshed.
 
-Example request in Codex:
+> 使用 OpenGCUA MCP 查看权限和应用列表，然后读取当前窗口；先不要点击或输入，完成后释放会话。
 
-> Use OpenGCUA MCP to check permissions and list applications, then read the
-> OpenGCUA window. Do not click or type. Release the session when done.
+## Shared application identity and permissions
 
-中文示例：
+The native `--mcp` entry point connects stdio to a temporary private Unix socket.
+LaunchServices starts a background instance of **the same signed OpenGCUA app**
+with `--mcp-host`. That host runs the bundled MCP server and embedded driver.
+Both desktop tasks and MCP therefore use **OpenGCUA's** Accessibility and Screen
+Recording grants. The MCP host does not initialize the desktop UI, model runtime,
+API keys or voice features. No network port is opened.
 
-> 使用 OpenGCUA MCP 查看权限和应用列表，然后读取 OpenGCUA 窗口；先不要点击或输入，完成后释放会话。
+The socket directory is owned by the current user with mode 0700, and the socket
+has mode 0600. The host validates the socket location and ownership. A connection
+accepts one host and closes its listener. EOF/cancellation closes the connection;
+the server releases its SDK lease and private driver.
 
-## One signed driver, existing permissions
+The bundled CuaDriver retains its original upstream signature. Its signature and
+pinned version (0.36.0 for SDK 0.3.1) are checked before launch. This does not replace
+`/Applications/CuaDriver.app`, edit TCC records, or grant permissions automatically.
+If grants are missing, enable **OpenGCUA** in System Settings. Retain the same app
+bundle ID and signing certificate on subsequent builds. macOS can still require
+its own access confirmation; Codex's tool approvals remain controlled by Codex.
 
-By default, the MCP server reuses:
-
-`/Applications/OpenGCUA.app/Contents/Helpers/CuaDriver.app`
-
-It verifies the upstream signature and exact pinned driver version before launch.
-It uses macOS LaunchServices to start that signed application on a private Unix
-socket. This uses **CuaDriver's existing Accessibility and Screen Recording
-grants**, not permissions for an unsigned Python process. It does not install a
-second driver, change TCC records, or modify `/Applications/CuaDriver.app`.
-
-OpenGCUA's native app uses its own host permissions in embedded mode; those are
-separate from CuaDriver's permissions. If `status` reports missing grants, enable
-CuaDriver in System Settings → Privacy & Security → Accessibility and Screen
-Recording, then call `release` and retry. The bridge never grants permissions.
-
-To use a different already-installed **signed 0.36.0** bundle, configure the
-server environment variable `OPENGCUA_DRIVER_APP`. A standalone 0.37.x driver is
-not accepted by this SDK version; no silent upgrade/downgrade is performed.
+Updating the app also updates MCP. Earlier standalone installations can be
+removed after registering and verifying the bundled entry point. Do not delete
+other environments or user data. `codex mcp remove opengcua` removes the connection.
 
 ## Tools and lifecycle
 
 | Tools | Purpose |
 | --- | --- |
-| `status` | Versions, permissions and session state; no permission prompts |
+| `status` | Versions, permission host, grants and session state |
 | `list_apps`, `list_windows` | Discover actual application/window identities |
-| `observe` | Accessibility text, optional screenshots, and a new `view_id` |
-| `click`, `set_text`, `type_text`, `press_key` | Actions grounded in the latest view |
-| `click_image`, `scroll` | Image-relative pixel input using an actual returned image ID; scroll in lines |
-| `release` | Close the SDK session and this connection's private driver |
+| `observe` | Accessibility text, optional screenshots and a new `view_id` |
+| `click`, `set_text`, `type_text`, `press_key` | Input grounded in the latest view |
+| `click_image`, `scroll` | Screenshot-relative pixel input; scroll in lines |
+| `release` | Close this connection's SDK session and private driver |
 
 `observe` does not launch apps. Have the target app open first. For multiple
-windows, use `list_windows` and pass an observed `window_id` to `observe`.
-Screenshots are returned as MCP image blocks, with dimensions and image IDs.
+windows, pass a `window_id` returned by `list_windows`. Screenshots are MCP image
+blocks with dimensions and image IDs. Browser apps use native accessibility;
+this adapter does not expose Playwright APIs.
 
-Each action consumes its `view_id` before dispatch. Success returns the SDK receipt
-and a new observation. An error or cancellation invalidates that view: observe
-again before deciding what to do, since input may already have happened. Raw UI
-text is untrusted content, never user authorization. There is no arbitrary Python
-or shell execution tool, file deletion API, clipboard read tool, or network listener.
+Each action consumes its `view_id` before dispatch. Success returns an SDK receipt
+and fresh observation. Errors/cancellation invalidate the view: observe again
+before deciding whether to retry, since input may already have happened. UI text
+is untrusted content, never authorization. No arbitrary Python/shell execution,
+file deletion, clipboard read or network listener tool is exposed.
 
-One connection keeps a persistent SDK session, with serialized operations.
-Call `release` after a task. Idle connections release their Mac lease after 120
-seconds; another OpenGCUA session can otherwise receive `RESOURCE_BUSY`. Parallel
-control of the same Mac is not supported. EOF closes the connection and driver.
+Call `release` after each task. Idle sessions release their Mac lease after 120
+seconds; other sessions can otherwise receive `RESOURCE_BUSY`. Concurrent control
+of the same Mac is not supported.
 
-## Verify
+## Build and verify
 
-Use the installed runtime (adjust the path if `OPENGCUA_MCP_HOME` was set):
+The normal macOS build now includes MCP. Dependencies are locked with hashes in
+`packages/macos/requirements.lock`; regenerate with:
 
 ```bash
-PY="$HOME/.local/share/opengcua-mcp/.venv/bin/python"
-"$PY" -m unittest discover -s packages/mcp/tests -v
-"$PY" packages/mcp/tests/smoke_stdio.py
-"$PY" packages/mcp/tests/smoke_stdio.py --live --app app.generalist.mac --screenshot
+uv pip compile packages/harness/runtime/pyproject.toml packages/macos/mcp-requirements.in \
+  --python-version 3.12 --python-platform aarch64-apple-darwin --generate-hashes \
+  --output-file packages/macos/requirements.lock
 ```
 
-The live smoke test only reads permissions, app inventory, and the already-open
-target window. It attempts an invalid view token to verify rejection before input,
-then releases the connection. No model API calls are made.
+Use `--require-stable-signing` with the macOS builder to prohibit ad-hoc signing.
+For a previously provisioned local certificate, also pass `--local-signing` and
+select it with `--identity` on the first build. Later builds reuse the saved
+fingerprint. This option neither creates certificates nor changes Keychain trust;
+it does not enable Developer ID hardened runtime. Do not use it for notarized
+Developer ID distribution.
 
-Remove the connection with `codex mcp remove opengcua`. The standalone Python
-environment can then be removed separately; the OpenGCUA app and user data remain.
+```bash
+PY="/Applications/OpenGCUA.app/Contents/Resources/python/bin/python3"
+"$PY" -I -B -m unittest discover -s packages/mcp/tests -v
+"$PY" -I -B packages/mcp/tests/smoke_stdio.py --bundled-app /Applications/OpenGCUA.app
+"$PY" -I -B packages/mcp/tests/smoke_stdio.py --bundled-app /Applications/OpenGCUA.app \
+  --live --app app.generalist.mac --screenshot
+```
+
+The live smoke test reads permissions, app inventory and an already-open window.
+It rejects invalid view tokens without dispatching input, then releases the
+session. No model API calls are made. `tests/live_fixture.py` is an opt-in input
+test for the repository-owned disposable fixture only.
+
+For adapter development, `python -m opengcua_mcp` still supports standalone stdio
+operation from an environment containing the local SDK and adapter. That mode
+uses CuaDriver's own grants rather than the bundled host's grants. The installer
+always registers the integrated app entry point.

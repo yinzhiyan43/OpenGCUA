@@ -8,8 +8,9 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 
-async def check(live, app, screenshot):
-    params = StdioServerParameters(command=sys.executable, args=["-m", "opengcua_mcp"])
+async def check(live, app, screenshot, bundled_app=None):
+    params = (StdioServerParameters(command=bundled_app + "/Contents/MacOS/OpenGCUA", args=["--mcp"])
+              if bundled_app else StdioServerParameters(command=sys.executable, args=["-m", "opengcua_mcp"]))
     async with stdio_client(params) as (reader, writer):
         async with ClientSession(reader, writer) as client:
             await client.initialize()
@@ -51,5 +52,6 @@ if __name__ == "__main__":
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--app", help="Already-running app to observe; does not launch it")
     parser.add_argument("--screenshot", action="store_true")
+    parser.add_argument("--bundled-app", help="Test the signed app entry point, including shared permissions")
     args = parser.parse_args()
-    asyncio.run(check(args.live, args.app, args.screenshot))
+    asyncio.run(check(args.live, args.app, args.screenshot, args.bundled_app))

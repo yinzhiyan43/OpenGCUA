@@ -1,0 +1,2 @@
+# Bundle dependency; the local SDK and adapter wheels are installed separately.
+mcp==1.30.0

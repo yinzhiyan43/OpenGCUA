@@ -113,6 +113,7 @@ def main():
     parser.add_argument("--skip-runtime", action="store_true", help="Recompile UI in an existing local bundle")
     parser.add_argument("--identity", default=os.environ.get("SIGNING_IDENTITY"), help="Certificate name/hash; '-' explicitly selects ad-hoc signing")
     parser.add_argument("--require-stable-signing", action="store_true", help="Fail instead of using an ad-hoc identity")
+    parser.add_argument("--local-signing", action="store_true", help="Use an explicit/pinned local certificate without Developer ID hardened runtime")
     parser.add_argument("--app-version", default="0.3.1", help="Numeric MAJOR.MINOR.PATCH bundle version")
     parser.add_argument("--build-number", default="1", help="Numeric bundle build number")
     parser.add_argument("--build-dir", type=Path, default=APP_ROOT / "build", help="Separate output directory; leaves other builds untouched")
@@ -124,7 +125,7 @@ def main():
         parser.error("--build-number must be a positive integer")
     BUILD.mkdir(parents=True, exist_ok=True)
     try:
-        args.identity = resolve_identity(args.identity, BUILD, args.require_stable_signing)
+        args.identity = resolve_identity(args.identity, BUILD, args.require_stable_signing or args.local_signing, args.local_signing)
     except (ValueError, subprocess.CalledProcessError) as exc:
         raise SystemExit(str(exc)) from exc
     bundle = BUILD / "OpenGCUA.app"
@@ -246,11 +247,27 @@ def main():
             if not entry.name.startswith("python"):
                 if entry.is_file() or entry.is_symlink(): entry.unlink()
         run(destination / "bin/python3", "-I", "-B", "-c", "import mai_ui, qwen_intelligence, mac_agent, native_host, terminal_tui, httpx; assert qwen_intelligence.Runtime is mai_ui.Runtime; print('Bundled SDK and runtime import OK')")
+    # MCP ships in the same runtime, including when refreshing an existing bundle.
+    uv = shutil.which("uv")
+    if not uv:
+        raise SystemExit("Build requires uv to bundle MCP; end users do not need it.")
+    destination = resources / "python"
+    if args.skip_runtime:
+        run(uv, "pip", "install", "--python", destination / "bin/python3", "--require-hashes", "-r", APP_ROOT / "requirements.lock")
+    run(uv, "pip", "install", "--python", destination / "bin/python3", "--no-deps", ROOT / "packages/mcp")
+    run(uv, "pip", "check", "--python", destination / "bin/python3")
+    for entry in (destination / "bin").iterdir():
+        if not entry.name.startswith("python") and (entry.is_file() or entry.is_symlink()):
+            entry.unlink()
+    run(destination / "bin/python3", "-I", "-B", "-c", "import opengcua_mcp.server, opengcua_mcp.launcher; print('Bundled MCP import OK')")
     # Sign nested Mach-O files before the outer bundle. Preserve upstream driver's
     # original Developer ID: SDK validates it, so never use codesign --deep --force.
     macho_magic = {b'\xcf\xfa\xed\xfe', b'\xce\xfa\xed\xfe', b'\xca\xfe\xba\xbe', b'\xfe\xed\xfa\xcf'}
     signing = ["--force", "--sign", args.identity]
-    if args.identity != "-": signing += ["--options", "runtime", "--timestamp"]
+    if args.identity != "-":
+        signing += ["--timestamp"]
+        if not args.local_signing:
+            signing += ["--options", "runtime"]
     entitlements = APP_ROOT / "entitlements.plist"
     for path in (resources / "python").rglob("*"):
         if path.is_symlink() or not path.is_file(): continue

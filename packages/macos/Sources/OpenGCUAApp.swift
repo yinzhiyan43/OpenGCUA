@@ -416,6 +416,7 @@ import SwiftUI
 
 @main enum OpenGCUAApp {
     @MainActor static func main() async {
+        if let status = MCPCommand.runIfRequested() { exit(status) }
         if CommandLine.arguments.dropFirst().first == "--install-update" {
             exit(await AppUpdateInstaller.runHelper(CommandLine.arguments))
         }

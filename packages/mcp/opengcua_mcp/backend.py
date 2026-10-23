@@ -37,6 +37,7 @@ class Bridge:
     def __init__(self, driver_app=None, idle_seconds=120):
         self.driver_app = Path(driver_app or os.environ.get("OPENGCUA_DRIVER_APP", DEFAULT_DRIVER))
         self.idle_seconds = idle_seconds
+        self.embedded = os.environ.get("OPENGCUA_EMBEDDED_HOST") == "1"
         self.lock = asyncio.Lock()
         self.driver = self.socket_dir = self.runtime = self.session = self.mac = None
         self.target = self.view_id = None
@@ -87,12 +88,15 @@ class Bridge:
         # Keep the Unix socket below sockaddr_un's path limit and private to this process.
         self.socket_dir = tempfile.TemporaryDirectory(prefix="opengcua-mcp-", dir="/private/tmp")
         try:
-            # LaunchServices gives the signed CuaDriver its own existing TCC identity.
-            # --embedded would instead require grants for the unbundled Python host.
-            # -W keeps a waitable launcher; -n and the private socket isolate its lifetime.
+            # In the bundled host, --embedded inherits OpenGCUA's TCC identity.
+            # Standalone development instead launches the signed CuaDriver app.
+            # Never attribute an embedded driver to an unbundled Python process.
+            command = ([str(executable), "serve", "--embedded", "--socket", self.socket]
+                       if self.embedded else
+                       ["/usr/bin/open", "-W", "-n", "-g", "-a", str(self.driver_app),
+                        "--args", "serve", "--socket", self.socket])
             self.driver = await asyncio.create_subprocess_exec(
-                "/usr/bin/open", "-W", "-n", "-g", "-a", str(self.driver_app),
-                "--args", "serve", "--socket", self.socket,
+                *command,
                 stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL)
             async with asyncio.timeout(12):
@@ -129,6 +133,7 @@ class Bridge:
             "doctor", False, None, str(self.driver_app), self.socket), 30))
         return {"sdk_version": importlib.metadata.version("qwen-intelligence-sdk"),
                 "driver_app": str(self.driver_app), "session_active": self.session is not None,
+                "permission_host": "OpenGCUA" if self.embedded else "CuaDriver",
                 "idle_release_seconds": self.idle_seconds, "driver": report}
 
     async def list_apps(self):
@@ -214,6 +219,10 @@ class Bridge:
 
     async def stop_private_driver(self):
         """Identify only our exact executable + random private socket before SIGTERM."""
+        if self.embedded:
+            if self.driver is not None and self.driver.returncode is None:
+                self.driver.terminate()
+            return
         if self.socket_dir is None:
             return
         expected = f"{self.driver_app / 'Contents/MacOS/cua-driver'} serve --socket {self.socket}"
