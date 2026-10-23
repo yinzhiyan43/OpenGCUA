@@ -9,6 +9,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from .backend import Bridge, text
+from .keyboard import type_literal_text
 
 bridge = Bridge()
 
@@ -91,18 +92,17 @@ async def type_text(view_id: str, text_value: str, element: int | None = None):
 
     Requires observe with an exact window_id. Activates that window and uses
     foreground input, preserving the selection established by a modifier chord.
+    Multiline text uses one paste, with LF-normalized plain text and escaped HTML
+    preserving literal line breaks. Original clipboard formats are restored
+    unless another application copies newer content. On failure, observe before
+    retrying: input may already have happened. Use press_key('enter') for a paragraph.
     Use set_text to replace an AX field value without foreground typing.
     """
     async with bridge.lock:
         bridge.require_view(view_id)
         if not bridge.window_id:
             raise ValueError("WINDOW_REQUIRED: list_windows, then observe with an exact window_id before typing")
-
-        async def dispatch(target):
-            await target.activate()
-            return await target.ui.input.text(text_value, target=element, delivery="foreground")
-
-        return await bridge.action(view_id, dispatch)
+        return await bridge.action(view_id, lambda target: type_literal_text(target, text_value, element))
 
 
 @mcp.tool(annotations=WRITE)

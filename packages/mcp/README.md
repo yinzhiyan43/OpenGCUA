@@ -87,6 +87,16 @@ foreground typing, so input replaces the selection even when a sibling window
 was previously key. Use `set_text` for background AX value replacement. Plain
 keys retain their existing delivery behavior.
 
+Multiline `type_text` normalizes CRLF/CR to LF and inserts the whole value with
+one guarded paste. Its temporary clipboard item contains plain text plus escaped
+HTML with `white-space: pre-wrap`, so rich editors preserve literal newlines
+instead of creating paragraphs. Input is escaped as text, never executable HTML.
+All original clipboard items and formats are kept in memory and restored after
+dispatch, including on failure; a newer clipboard copy is never overwritten.
+If any original format cannot be preserved, the tool refuses before pasting.
+Single-line typing does not touch the clipboard. Use `press_key(key="enter")`
+when a paragraph break is intended. A failed paste is never replayed automatically.
+
 Call `release` after each task. Idle sessions release their Mac lease after 120
 seconds; other sessions can otherwise receive `RESOURCE_BUSY`. Concurrent control
 of the same Mac is not supported.
@@ -121,6 +131,15 @@ The live smoke test reads permissions, app inventory and an already-open window.
 It rejects invalid view tokens without dispatching input, then releases the
 session. No model API calls are made. `tests/live_fixture.py` is an opt-in input
 test for the repository-owned disposable fixture only.
+
+For an opt-in Chrome regression, open `tests/browser_editors.html` in a separate
+window, then run `tests/live_browser.py --bundled-app /Applications/OpenGCUA.app`.
+It requires the dedicated fixture marker, checks full selections and exact values
+(including leading/trailing/blank lines and CRLF), verifies the sibling editor
+stays unchanged, closes the test window, and releases MCP even on failure.
+`tests/live_textedit.py` creates its own temporary plain-text document in TextEdit,
+tests multiline replacement, checks the saved file byte-for-byte as UTF-8 text,
+then closes the document and releases MCP.
 
 For adapter development, `python -m opengcua_mcp` still supports standalone stdio
 operation from an environment containing the local SDK and adapter. That mode

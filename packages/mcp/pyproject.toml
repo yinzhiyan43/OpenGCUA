@@ -7,7 +7,7 @@ name = "opengcua-mcp"
 version = "0.1.0"
 description = "Stateful local MCP tools for the OpenGCUA macOS SDK"
 requires-python = ">=3.11,<3.15"
-dependencies = ["mcp==1.30.0", "qwen-intelligence-sdk==0.3.1"]
+dependencies = ["mcp==1.30.0", "qwen-intelligence-sdk==0.3.1", "pyobjc-framework-Cocoa==12.2.2; sys_platform == 'darwin'"]
 
 [project.scripts]
 opengcua-mcp = "opengcua_mcp.server:main"
