@@ -87,16 +87,49 @@ async def set_text(view_id: str, element: int, text_value: str):
 
 @mcp.tool(annotations=WRITE)
 async def type_text(view_id: str, text_value: str, element: int | None = None):
-    """Type into an observed element or the current app's focused field. Can insert new text."""
+    """Type into an observed element or the current window's focused field.
+
+    Requires observe with an exact window_id. Activates that window and uses
+    foreground input, preserving the selection established by a modifier chord.
+    Use set_text to replace an AX field value without foreground typing.
+    """
     async with bridge.lock:
-        return await bridge.action(view_id, lambda app: app.ui.input.text(text_value, target=element))
+        bridge.require_view(view_id)
+        if not bridge.window_id:
+            raise ValueError("WINDOW_REQUIRED: list_windows, then observe with an exact window_id before typing")
+
+        async def dispatch(target):
+            await target.activate()
+            return await target.ui.input.text(text_value, target=element, delivery="foreground")
+
+        return await bridge.action(view_id, dispatch)
 
 
 @mcp.tool(annotations=WRITE)
 async def press_key(view_id: str, key: str, modifiers: list[str] | None = None, element: int | None = None):
-    """Press a key in the observed app. Modifiers use SDK names, e.g. ['cmd']; key e.g. 'a'."""
+    """Press a key; modifiers use SDK names, e.g. ['cmd'] with key 'a'.
+
+    Modifier chords activate the exact observed window and use foreground input
+    so native macOS menu shortcuts work. First observe with a window_id from
+    list_windows. The SDK refuses input if that window loses foreground focus.
+    """
     async with bridge.lock:
-        return await bridge.action(view_id, lambda app: app.ui.input.press_key(key, modifiers=modifiers or [], target=element))
+        bridge.require_view(view_id)
+        chord = modifiers or []
+        if chord and not bridge.window_id:
+            raise ValueError("WINDOW_REQUIRED: list_windows, then observe with an exact window_id before a modifier chord")
+
+        async def dispatch(target):
+            if chord:
+                # Background PID events can report completion without invoking
+                # AppKit menu equivalents (including Cmd+A). Choose the native
+                # foreground route BEFORE dispatch, never replay a failed chord.
+                await target.activate()
+            return await target.ui.input.press_key(
+                key, modifiers=chord, target=element,
+                delivery="foreground" if chord else "auto")
+
+        return await bridge.action(view_id, dispatch)
 
 
 @mcp.tool(annotations=WRITE)

@@ -86,7 +86,12 @@ final class Fixture: NSObject, NSApplicationDelegate {
     var menuCount = 0
     @objc func recordMenu() { menuCount += 1; save() }
     @objc func save() {
-        let data: [String:Any] = ["counts":counts,"text":fields.map(\.stringValue),"menu_count":menuCount,"scroll_y":scrolls.map { $0.contentView.bounds.origin.y },"drag_events":pads.map(\.drags),"pointer_pressed":pads.map(\.pressed),"input_events":pads.map(\.inputEvents),"frames":windows.map { ["x":$0.frame.origin.x,"y":$0.frame.origin.y,"width":$0.frame.width,"height":$0.frame.height] },"pid":ProcessInfo.processInfo.processIdentifier,"frontmost_pid":NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1]
+        let selections = fields.map { field -> [String:Int] in
+            guard let editor = field.currentEditor() as? NSTextView else { return ["location":-1,"length":-1] }
+            let range = editor.selectedRange()
+            return ["location":range.location,"length":range.length]
+        }
+        let data: [String:Any] = ["selections":selections,"counts":counts,"text":fields.map(\.stringValue),"menu_count":menuCount,"scroll_y":scrolls.map { $0.contentView.bounds.origin.y },"drag_events":pads.map(\.drags),"pointer_pressed":pads.map(\.pressed),"input_events":pads.map(\.inputEvents),"frames":windows.map { ["x":$0.frame.origin.x,"y":$0.frame.origin.y,"width":$0.frame.width,"height":$0.frame.height] },"pid":ProcessInfo.processInfo.processIdentifier,"frontmost_pid":NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1]
         if let bytes=try? JSONSerialization.data(withJSONObject:data,options:[.sortedKeys]) {try? bytes.write(to:output,options:.atomic)}
     }
 }
