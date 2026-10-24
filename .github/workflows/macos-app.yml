@@ -2,7 +2,7 @@ name: Native macOS app
 
 on:
   pull_request:
-    paths: ["packages/macos/**", "packages/harness/runtime/**", "packages/sdk/**", ".github/workflows/macos-app.yml"]
+    paths: ["packages/macos/**", "packages/mcp/**", "packages/harness/runtime/**", "packages/sdk/**", ".github/workflows/macos-app.yml"]
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -43,6 +43,10 @@ jobs:
           args=(--identity - --build-number "$BUILD_NUMBER")
           if [[ -n "$APP_VERSION" ]]; then args+=(--app-version "$APP_VERSION"); fi
           uv run --no-project --python 3.12 python packages/macos/scripts/build.py "${args[@]}"
+      - name: Test MCP protocol and shared host lifecycle
+        env:
+          PYTHONPATH: packages/mcp:packages/harness/runtime
+        run: packages/macos/build/OpenGCUA.app/Contents/Resources/python/bin/python3 -B -m unittest discover -s packages/mcp/tests -p 'test_*.py' -v
       - name: Test signing identity selection
         run: python3 packages/macos/tests/test_signing.py
       - name: Test resumable driver archive download

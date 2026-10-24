@@ -247,6 +247,11 @@ PYTHONPATH=packages/mcp "$PY" -B packages/mcp/tests/smoke_stdio.py
   --live --app app.generalist.mac --screenshot
 ```
 
+The native macOS app CI runs all `tests/test_*.py` unit tests against repository
+source with the freshly built app's Python dependencies. MCP-only pull requests
+also trigger that workflow. These tests use mocks and private test sockets, without
+desktop input or live model requests; `live_*.py` scripts remain opt-in.
+
 The live smoke test reads permissions, app inventory and an already-open window.
 It rejects invalid view tokens without dispatching input, then releases the
 session. No model API calls are made. `tests/live_fixture.py` is an opt-in input

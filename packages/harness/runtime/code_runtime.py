@@ -1763,50 +1763,6 @@ def emit(value: Any) -> None:
     _display_value(value)
 
 
-def _capability_views(original: Any, converted: Any, path: tuple = ()) -> list[dict]:
-    """由真实对象生成展示标记，绝不以四字段 JSON 的形状猜测能力类型。"""
-    if _MAI_SESSION is None:
-        return []
-    from mai_ui_values import Capability
-
-    if isinstance(original, Capability) and isinstance(converted, dict):
-        return [{"path": list(path), "kind": "detail", "operation": getattr(original, "_operation", None)}]
-    if isinstance(original, dict) and isinstance(converted, dict):
-        # JSON 会将数字键转成字符串；键碰撞后无法证明值仍来自同一原对象。
-        if len(original) != len(converted):
-            return []
-        if (original and all(type(key) is str and isinstance(child, Capability)
-                             for key, child in original.items()) and original.keys() == converted.keys()):
-            return [{"path": list(path), "kind": "overview", "operations": {
-                key: getattr(child, "_operation", None) or key for key, child in original.items()
-            }}]
-        return [view for key, child in original.items() if type(key) is str and key in converted
-                for view in _capability_views(child, converted[key], path + (key,))]
-    if isinstance(original, (list, tuple)) and isinstance(converted, (list, tuple)) and len(original) == len(converted):
-        return [view for index, (child, value) in enumerate(zip(original, converted))
-                for view in _capability_views(child, value, path + (index,))]
-    return []
-
-
-def _inventory_view(original: Any, top_level: bool) -> dict | None:
-    """仅当顶层 original 是真实 AppInventory/WindowInventory 实例时返回展示注解。
-
-    注解只认真实类型，绝不以 apps/windows+complete 的形状猜测；嵌套在 dict/list
-    中的清单不加注解。event value 保持原转换数据不变，注解只服务展示层紧凑渲染。
-    """
-    if not top_level:
-        return None
-    try:
-        from mai_ui_values import AppInventory, WindowInventory
-    except Exception:
-        return None
-    if isinstance(original, AppInventory):
-        return {"kind": "apps"}
-    if isinstance(original, WindowInventory):
-        return {"kind": "windows"}
-    return None
-
-
 def _display_value(value: Any) -> None:
     """显式展示返回值；结构中的 AX 与图片按键路径单独发布，返回 None。"""
     _check_active_request()
@@ -1816,13 +1772,10 @@ def _display_value(value: Any) -> None:
     ):
         raise RuntimeError("emit() 仅允许活动请求的主线程调用，未发布任何输出")
     frame = sys._getframe(1)
-    internal_sources = {__file__, str(Path(__file__).with_name("mai_ui_api.py")),
-                        str(Path(__file__).with_name("mai_ui_values.py"))}
     # 只跳过宿主包装帧，动态代码的来源不可归到调用它的外层模型代码。
-    while frame is not None and frame.f_code.co_filename in internal_sources:
+    while frame is not None and frame.f_code.co_filename == __file__:
         frame = frame.f_back
-    original = getattr(_MAI_SESSION, "_displaying_value", value)
-    metadata = _output_metadata(original, frame)
+    metadata = _output_metadata(value, frame)
     del frame
     from cua_api import ActionReceipt, AXFieldFragment, AXState, AXView
     try:
@@ -1849,8 +1802,7 @@ def _display_value(value: Any) -> None:
                 seen.remove(id(item))
         return False
 
-    def publish(item: Any, label: str | None = None, original_item: Any = None,
-                top_level: bool = False) -> None:
+    def publish(item: Any, label: str | None = None) -> None:
         def send(event: dict[str, Any]) -> None:
             _emit({
                 **event, **metadata,
@@ -1889,21 +1841,14 @@ def _display_value(value: Any) -> None:
                 else:
                     suffix = f"[{key}]"
                 child_label = _excerpt((label or "$") + suffix, MAX_LABEL_CHARS, "...[path truncated]")
-                original_child = (original_item.get(key) if isinstance(original_item, dict) else
-                                  original_item[key] if isinstance(original_item, (list, tuple))
-                                  and type(key) is int and 0 <= key < len(original_item) else None)
-                publish(child, child_label, original_child)
+                publish(child, child_label)
         else:
             # 普通结构保留紧凑列表渲染；富值已递归拆分，绝不字符串化图片。
             data = json.loads(json.dumps(item, ensure_ascii=False, default=str))
-            views = _capability_views(original_item, data)
-            inventory = _inventory_view(original_item, top_level)
-            send({"type": "display", "kind": "json", "value": data,
-                  **({"capability_views": views} if views else {}),
-                  **({"inventory_view": inventory} if inventory else {})})
+            send({"type": "display", "kind": "json", "value": data})
 
     has_rich(value, set())
-    publish(value, original_item=original, top_level=True)
+    publish(value)
 
 
 def _read_limited(path: Path, limit: int = 256 * 1024) -> str:
