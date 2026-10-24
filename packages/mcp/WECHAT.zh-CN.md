@@ -4,6 +4,8 @@
 
 连接配置见 [CONNECT.zh-CN.md](CONNECT.zh-CN.md)，实际成功和失败记录见 [WORKFLOW.zh-CN.md 第 9 节](WORKFLOW.zh-CN.md#9-微信发送实测与其他-harness-复测)。以下工具名不含客户端前缀，参数以当前客户端发现的 schema 为准。
 
+持续监控与自动回复见 [外部 harness 微信监控工作流](WECHAT-MONITOR.zh-CN.md)，其中说明基线、新消息对齐、群提及识别、去重和断线恢复；单次发送成功不等于监控已通过验收。
+
 ## 先明确任务和完成条件
 
 开始前保留以下任务数据，而不是边操作边猜：

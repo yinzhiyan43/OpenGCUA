@@ -2,6 +2,8 @@
 
 这份文档记录当前聊天实际采用的调用流程。安装和注册见 [连接说明](CONNECT.zh-CN.md)，完整工具契约见 [MCP README](README.md) 和 [catalog.py](opengcua_mcp/catalog.py)。以下 JSON 是对应 MCP 工具的参数，不是终端命令；示例中的操作 ID、应用 ID、窗口 ID 和视图 ID 必须使用当次返回值。
 
+微信持续监控由外部 harness 执行的具体流程见 [监控与自动回复工作流](WECHAT-MONITOR.zh-CN.md)。它使用现有直接工具，不要求修改 OpenGCUA；持续调度能力与消息识别必须由接入方验证。
+
 ## 1. 分工与连接
 
 默认采用单层模型决策，避免当前聊天与 OpenGCUA 共用并发为 1 的模型时反复嵌套推理：
