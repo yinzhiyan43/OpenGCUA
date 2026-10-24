@@ -863,6 +863,11 @@ async def serve():
             pass
 
     host = NativeHost(send, runs)
+    app_runtime = None
+    if os.environ.get('OPENGCUA_APP_MCP') == '1':
+        from opengcua_mcp.app_runtime import AppRuntime
+        app_runtime = AppRuntime(host, send)
+        await app_runtime.start()
     reader = asyncio.StreamReader(limit=262144)
     protocol = asyncio.StreamReaderProtocol(reader)
     transport, _ = await asyncio.get_running_loop().connect_read_pipe(lambda: protocol, sys.stdin)
@@ -876,13 +881,13 @@ async def serve():
                     raise ValueError("命令格式无效。")
                 if command.get("command") == "shutdown":
                     break
-                await host.command(command)
+                await (app_runtime or host).command(command)
             except (ValueError, TypeError) as exc:
                 send({"event": "error", "text": host.public_error(exc),
                       **({k: command[k] for k in ("task_id", "message_id", "command_id") if k in command}
                          if isinstance(command, dict) else {})})
     finally:
-        await host.close()
+        await (app_runtime or host).close()
         transport.close()
 
 

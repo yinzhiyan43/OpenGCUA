@@ -210,6 +210,9 @@ absolute directories can be listed in `skills_dirs` in `local.json`. See the
 
 ## Native macOS app
 
+To connect the installed app to Codex, see the [MCP connection guide (中文)](packages/mcp/CONNECT.zh-CN.md)
+or the [MCP reference](packages/mcp/README.md). MCP is bundled; model-driven UI operations reuse the app's model settings and credentials.
+
 [OpenGCUA for macOS](packages/macos/README.md) implements the menu bar assistant:
 enter a task, collapse into a floating control panel, reply to questions, and
 review saved results. SwiftUI + AppKit, with Python, the SDK and signed CuaDriver

@@ -93,15 +93,15 @@ jobs:
           packages/macos/build/generalist-voice-contracts
       - name: Test voice task routing
         run: |
-          swiftc -swift-version 5 -target arm64-apple-macosx14.0 packages/macos/Sources/Localization.swift packages/macos/Sources/AudioInputDevices.swift packages/macos/Sources/VoiceTaskTools.swift packages/macos/Sources/Settings.swift packages/macos/Sources/SpeechInput.swift packages/macos/Sources/QwenSpeechInput.swift packages/macos/Sources/AppModel.swift packages/macos/Sources/SessionControls.swift packages/macos/tests/VoiceRouterContracts.swift -o packages/macos/build/generalist-voice-router-contracts
+          swiftc -swift-version 5 -target arm64-apple-macosx14.0 packages/macos/Sources/Localization.swift packages/macos/Sources/AudioInputDevices.swift packages/macos/Sources/VoiceTaskTools.swift packages/macos/Sources/Settings.swift packages/macos/Sources/SpeechInput.swift packages/macos/Sources/QwenSpeechInput.swift packages/macos/Sources/AppModel.swift packages/macos/Sources/MCPOperationConfiguration.swift packages/macos/Sources/SessionControls.swift packages/macos/tests/VoiceRouterContracts.swift -o packages/macos/build/generalist-voice-router-contracts
           packages/macos/build/generalist-voice-router-contracts
       - name: Test long-term memory native review contracts
         run: |
-          swiftc -swift-version 5 -target arm64-apple-macosx14.0 packages/macos/Sources/Localization.swift packages/macos/Sources/AudioInputDevices.swift packages/macos/Sources/VoiceTaskTools.swift packages/macos/Sources/Settings.swift packages/macos/Sources/SpeechInput.swift packages/macos/Sources/QwenSpeechInput.swift packages/macos/Sources/AppModel.swift packages/macos/Sources/SessionControls.swift packages/macos/tests/MemoryContracts.swift -o packages/macos/build/generalist-memory-contracts
+          swiftc -swift-version 5 -target arm64-apple-macosx14.0 packages/macos/Sources/Localization.swift packages/macos/Sources/AudioInputDevices.swift packages/macos/Sources/VoiceTaskTools.swift packages/macos/Sources/Settings.swift packages/macos/Sources/SpeechInput.swift packages/macos/Sources/QwenSpeechInput.swift packages/macos/Sources/AppModel.swift packages/macos/Sources/MCPOperationConfiguration.swift packages/macos/Sources/SessionControls.swift packages/macos/tests/MemoryContracts.swift -o packages/macos/build/generalist-memory-contracts
           packages/macos/build/generalist-memory-contracts
       - name: Test configuration file reload and credential isolation
         run: |
-          swiftc -swift-version 5 -target arm64-apple-macosx14.0 packages/macos/Sources/Localization.swift packages/macos/Sources/VoiceTaskTools.swift packages/macos/Sources/Settings.swift packages/macos/Sources/FirstLaunch.swift packages/macos/tests/ConfigContracts.swift -o packages/macos/build/generalist-config-contracts
+          swiftc -swift-version 5 -target arm64-apple-macosx14.0 packages/macos/Sources/Localization.swift packages/macos/Sources/VoiceTaskTools.swift packages/macos/Sources/Settings.swift packages/macos/Sources/MCPOperationConfiguration.swift packages/macos/Sources/FirstLaunch.swift packages/macos/tests/ConfigContracts.swift -o packages/macos/build/generalist-config-contracts
           packages/macos/build/generalist-config-contracts
       - name: Test task input shortcuts and input method safety
         run: |

@@ -16,6 +16,7 @@ import SwiftUI
     private var miniMenuObservers: [NSObjectProtocol] = []
     var quitting = false
     private let globalShortcut = GlobalShortcut()
+    private let dockStatus = MCPDockStatus()
     private var shortcutResultCode = 0
     var mainSize: NSSize { NSSize(width: 480, height: model.phase == .idle ? 600 : 680) }
     func refreshMainSize() {
@@ -30,7 +31,9 @@ import SwiftUI
     private lazy var menuBehavior = MenuPopoverBehavior { [weak self] in self?.dismissMenuPopover() }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
+        // Keep the normal application's LaunchServices policy throughout its
+        // lifetime. Toggling prohibited/regular races Dock's tile animations.
+        dockStatus.start()
         model.delegate = self
         miniPresentation.onChange = { [weak self] in self?.refreshCompact() }
         miniPresentation.keepExpanded = { [weak self] in
@@ -420,6 +423,9 @@ import SwiftUI
         if CommandLine.arguments.dropFirst().first == "--install-update" {
             exit(await AppUpdateInstaller.runHelper(CommandLine.arguments))
         }
+        // Reject a duplicate before creating NSApplication and registering UI.
+        do { guard try AppInstance.acquire() else { return } }
+        catch { NSLog("OpenGCUA: %@", error.localizedDescription); return }
         let app = NSApplication.shared, delegate = AppDelegate()
         app.delegate = delegate
         withExtendedLifetime(delegate) { app.run() }

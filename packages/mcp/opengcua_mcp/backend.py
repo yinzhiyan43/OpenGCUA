@@ -18,8 +18,6 @@ import time
 import uuid
 
 from mcp.types import ImageContent, TextContent
-from qwen_intelligence import Runtime
-from mai_ui import _native
 
 
 DEFAULT_DRIVER = "/Applications/OpenGCUA.app/Contents/Helpers/CuaDriver.app"
@@ -113,6 +111,7 @@ class Bridge:
         return str(Path(self.socket_dir.name) / "driver.sock")
 
     async def connect(self):
+        from qwen_intelligence import Runtime
         self.last_used = time.monotonic()
         await self.start_driver()
         if self.runtime is not None:
@@ -127,20 +126,39 @@ class Bridge:
             raise
 
     async def status(self):
-        self.last_used = time.monotonic()
-        await self.start_driver()
-        report = json.loads(await asyncio.wait_for(_native.macos_admin(
-            "doctor", False, None, str(self.driver_app), self.socket), 30))
+        from .diagnostics import driver_metadata, host_diagnostics
+        # A diagnostic query must not start a native process, open a device
+        # session, call doctor, or extend an existing desktop lease's lifetime.
+        host = host_diagnostics() if self.embedded else None
+        report = driver_metadata(self.driver_app)
+        report.update({
+            "running": self.driver is not None and self.driver.returncode is None,
+            "diagnostic": "active_session" if self.runtime is not None else "passive_snapshot",
+            "permissions_rechecked": False,
+            "permissions": {
+                "accessibility": host.get("accessibility_trusted") if host else None,
+                "screen_recording": None,
+                "source": "native_host_snapshot" if host else "not_checked",
+                "note": "Unknown grants are null. Device permissions and the signed driver "
+                        "are checked when an actual desktop operation starts.",
+            },
+        })
         return {"sdk_version": importlib.metadata.version("qwen-intelligence-sdk"),
+                "server_pid": os.getpid(), "host_pid": os.getppid(),
+                "host": host,
                 "driver_app": str(self.driver_app), "session_active": self.session is not None,
                 "permission_host": "OpenGCUA" if self.embedded else "CuaDriver",
                 "idle_release_seconds": self.idle_seconds, "driver": report}
 
     async def list_apps(self):
         await self.connect()
-        self.output = []
-        await self.session.emit(await self.mac.apps.list())
-        return list(self.output)
+        # The SDK's compact renderer hides IDs for unique labels. macOS only
+        # lists running apps (complete=False), so its resolver rejects labels
+        # even when they appear in that list. Keep the observed IDs available.
+        inventory = dataclasses.asdict(await self.mac.apps.list())
+        return [text({**inventory,
+                      "next": "Use an exact apps[].id with list_windows and observe. "
+                              "Incomplete inventories cannot resolve application names."})]
 
     async def list_windows(self, app):
         await self.connect()
@@ -234,10 +252,3 @@ class Bridge:
                     os.kill(int(parts[0]), signal.SIGTERM)
                 except ProcessLookupError:
                     pass
-
-    async def expire_idle(self):
-        while True:
-            await asyncio.sleep(5)
-            async with self.lock:
-                if time.monotonic() - self.last_used > self.idle_seconds:
-                    await self.close()

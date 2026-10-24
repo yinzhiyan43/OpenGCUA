@@ -1,10 +1,15 @@
 import asyncio
 import dataclasses
+import json
+from pathlib import Path
+import plistlib
+import tempfile
 import unittest
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from opengcua_mcp.backend import Bridge
-from opengcua_mcp.server import mcp
+from opengcua_mcp.catalog import TOOLS
 
 
 @dataclasses.dataclass
@@ -13,6 +18,77 @@ class Receipt:
 
 
 class BridgeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_status_preserves_active_runtime_without_second_native_connection(self):
+        b = Bridge()
+        b.embedded = True
+        b.start_driver = AsyncMock()
+        b.driver = SimpleNamespace(returncode=None)
+        b.runtime = object()
+        b.session = object()
+        b.view_id = 'existing-view'
+        with patch('importlib.metadata.version', return_value='test'), \
+             patch('opengcua_mcp.diagnostics.host_diagnostics', return_value={'dock': {'count': 1}}), \
+             patch.dict('sys.modules', {'mai_ui': None}):
+            result = await b.status()
+        self.assertTrue(result['session_active'])
+        self.assertEqual(result['host']['dock']['count'], 1)
+        self.assertEqual(result['driver']['diagnostic'], 'active_session')
+        self.assertEqual(b.view_id, 'existing-view')
+        b.start_driver.assert_not_awaited()
+
+    async def test_cold_and_repeated_status_never_start_driver_or_refresh_idle_deadline(self):
+        with tempfile.TemporaryDirectory() as root:
+            app = Path(root) / 'CuaDriver.app'
+            (app / 'Contents').mkdir(parents=True)
+            (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleShortVersionString': '0.36.0'}))
+            b = Bridge(driver_app=app)
+            b.embedded = True
+            b.start_driver = AsyncMock(side_effect=AssertionError('status launched driver'))
+            b._command = AsyncMock(side_effect=AssertionError('status spawned process'))
+            before = b.last_used
+            with patch('importlib.metadata.version', return_value='test'), \
+                 patch('opengcua_mcp.diagnostics.host_diagnostics', return_value={'accessibility_trusted': True}), \
+                 patch.dict('sys.modules', {'mai_ui': None, 'qwen_intelligence': None}):
+                for _ in range(3):
+                    result = await b.status()
+                    self.assertFalse(result['driver']['running'])
+                    self.assertEqual(result['driver']['version'], '0.36.0')
+                    self.assertFalse(result['driver']['signature_checked'])
+                    self.assertTrue(result['driver']['permissions']['accessibility'])
+                    self.assertIsNone(result['driver']['permissions']['screen_recording'])
+            self.assertEqual(b.last_used, before)
+            self.assertIsNone(b.runtime)
+            self.assertIsNone(b.socket_dir)
+            b.start_driver.assert_not_awaited()
+            b._command.assert_not_awaited()
+
+    async def test_app_inventory_preserves_ids_and_incomplete_flag(self):
+        @dataclasses.dataclass
+        class App:
+            id: str
+            label: str
+            native_id: str
+
+        @dataclasses.dataclass
+        class Inventory:
+            apps: tuple
+            complete: bool
+
+        apps = (App("app:1:start", "Same name", "example.app"),
+                App("app:2:start", "Same name", "example.app"))
+        for complete in (False, True):
+            with self.subTest(complete=complete):
+                b = Bridge()
+                b.connect = AsyncMock()
+                b.mac = SimpleNamespace(apps=SimpleNamespace(
+                    list=AsyncMock(return_value=Inventory(apps, complete))))
+                result = json.loads((await b.list_apps())[0].text)
+                self.assertEqual(result["complete"], complete)
+                self.assertEqual([a["id"] for a in result["apps"]],
+                                 ["app:1:start", "app:2:start"])
+                self.assertEqual(result["apps"][0]["native_id"], "example.app")
+                self.assertIn("apps[].id", result["next"])
+
     async def test_stale_view_never_dispatches(self):
         b = Bridge()
         b.target, b.view_id = object(), "new"
@@ -71,8 +147,8 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(driver.returncode, 0)
 
     async def test_tool_schema_and_annotations(self):
-        tools = {t.name: t for t in await mcp.list_tools()}
-        self.assertEqual(len(tools), 11)
+        tools = {t.name: t for t in TOOLS}
+        self.assertEqual(len(tools), 14)
         for name in ("status", "list_apps", "list_windows", "observe"):
             self.assertTrue(tools[name].annotations.readOnlyHint)
         for name in ("click", "set_text", "type_text", "press_key", "scroll", "click_image"):

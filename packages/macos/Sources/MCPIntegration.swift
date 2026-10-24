@@ -1,23 +1,35 @@
 import AppKit
 import SwiftUI
+import Darwin
 
-/// Both MCP modes enter before the UI/runtime/keychain are initialized.
+/// MCP starts without desktop UI; model configuration is read only for operations.
 enum MCPCommand {
-    static func runIfRequested() -> Int32? {
+    @MainActor static func runIfRequested() -> Int32? {
         let args = Array(CommandLine.arguments.dropFirst())
         guard let command = args.first,
               ["--mcp", "--mcp-host", "--install-codex-mcp"].contains(command) else { return nil }
-        guard let resources = Bundle.main.resourceURL,
-              (command == "--mcp-host" ? args.count == 2 : args.count == 1) else { return 64 }
-        let child = Process()
-        child.executableURL = resources.appendingPathComponent("python/bin/python3")
-        child.arguments = ["-I", "-B", "-u", "-m", "opengcua_mcp.launcher"]
-        if command == "--mcp-host" { child.arguments! += ["--host", args[1]] }
-        if command == "--install-codex-mcp" { child.arguments! += ["--install-codex"] }
+        guard let resources = Bundle.main.resourceURL, args.count == 1 else { return 64 }
+        let python = resources.appendingPathComponent("python/bin/python3")
         var environment = ProcessInfo.processInfo.environment
-        for key in ["PYTHONPATH", "PYTHONHOME", "OPENGCUA_EMBEDDED_HOST", "OPENGCUA_DRIVER_APP"] {
+        for key in ["PYTHONPATH", "PYTHONHOME", "OPENGCUA_EMBEDDED_HOST", "OPENGCUA_DRIVER_APP", "API_KEY", "DASHSCOPE_API_KEY", "MAC_AGENT_CONFIG", "GENERALIST_DRIVER_SOCKET"] {
             environment.removeValue(forKey: key)
+            unsetenv(key)
         }
+        if command == "--mcp" {
+            // A connection needs only a stdio channel, not another native app
+            // waiting for Python. Device access stays in the single signed host.
+            let arguments = [python.path, "-I", "-B", "-u", "-m", "opengcua_mcp.launcher"]
+            var argv = arguments.map { strdup($0) } + [nil]
+            defer { for argument in argv { free(argument) } }
+            argv.withUnsafeMutableBufferPointer { _ = execv(python.path, $0.baseAddress!) }
+            return 1
+        }
+        // Legacy launch requests enter the same normal application lifecycle.
+        if command == "--mcp-host" { return nil }
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        let child = Process()
+        child.executableURL = python
+        child.arguments = ["-I", "-B", "-u", "-m", "opengcua_mcp.launcher", "--install-codex"]
         child.environment = environment
         child.standardInput = FileHandle.standardInput
         child.standardOutput = FileHandle.standardOutput
@@ -41,7 +53,7 @@ enum MCPCommand {
     var body: some View {
         Form {
             Section("Codex") {
-                Text(L("通过 MCP 使用 OpenGCUA 的查看、点击、输入和滚动能力。无需额外模型密钥。"))
+                Text(L("通过 MCP 调用已配置的模型，完成有明确边界的界面操作。当前聊天负责整体决策；底层工具保留作诊断。"))
                 Button(busy ? L("正在连接…") : L("连接到 Codex")) { connect() }
                     .disabled(busy)
                 if !message.isEmpty {

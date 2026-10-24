@@ -29,6 +29,9 @@ import Foundation
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["GENERALIST_DATA_DIR"] = dataDirectory.path
         env["GENERALIST_DRIVER_APP"] = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/CuaDriver.app").path
+        env["OPENGCUA_APP_MCP"] = "1"
+        env["OPENGCUA_EMBEDDED_HOST"] = "1"
+        env["OPENGCUA_DRIVER_APP"] = env["GENERALIST_DRIVER_APP"]
         p.environment = env
         p.currentDirectoryURL = dataDirectory
         p.standardInput = toHost; p.standardOutput = fromHost; p.standardError = FileHandle.nullDevice

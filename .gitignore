@@ -41,6 +41,7 @@ actions.jsonl
 /browser/
 /browser-leases/
 **/runs/
+/mcp-case-output/
 
 # 测试与检查缓存
 .mypy_cache/

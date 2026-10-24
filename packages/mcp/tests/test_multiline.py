@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from opengcua_mcp import server
+from opengcua_mcp.operations import DesktopTools
 from opengcua_mcp.backend import Bridge
 from opengcua_mcp.keyboard import type_literal_text
 
@@ -66,11 +66,11 @@ class MultilineTests(unittest.IsolatedAsyncioTestCase):
         bridge=Bridge();bridge.target=self.target;bridge.view_id='current';bridge.window_id='window'
         bridge.capture=AsyncMock(return_value=[])
         self.target.ui.input.press_key.side_effect=RuntimeError('INPUT_REFUSED')
-        with patch.object(server,'bridge',bridge):
-            with self.assertRaisesRegex(RuntimeError,'INPUT_REFUSED'):
-                await server.type_text('current','a\nb')
-            with self.assertRaisesRegex(ValueError,'STALE_VIEW'):
-                await server.type_text('current','a\nb')
+        tools = DesktopTools(bridge=bridge)
+        with self.assertRaisesRegex(RuntimeError,'INPUT_REFUSED'):
+            await tools.type_text('current','a\nb')
+        with self.assertRaisesRegex(ValueError,'STALE_VIEW'):
+            await tools.type_text('current','a\nb')
         self.assertEqual(self.events,[('stage','a\nb'),('restore',)])
         self.assertEqual(self.target.ui.input.press_key.await_count,1)
         bridge.capture.assert_not_awaited()

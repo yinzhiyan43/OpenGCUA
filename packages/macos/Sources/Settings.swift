@@ -144,35 +144,132 @@ struct Preferences: Codable {
     }
 }
 
+/// Successful credentials stay only in this application's memory. Never cache
+/// refusals or missing items, and invalidate before attempting any replacement.
+final class CredentialSessionCache {
+    private let lock = NSLock()
+    private var keys: [String: String] = [:]
+
+    func read(_ endpoint: String, load: () throws -> String) rethrows -> String {
+        lock.lock(); defer { lock.unlock() }
+        if let key = keys[endpoint] { return key }
+        let key = try load()
+        if !key.isEmpty { keys[endpoint] = key }
+        return key
+    }
+
+    func save(_ key: String, endpoint: String, persist: () throws -> Void) rethrows {
+        lock.lock(); defer { lock.unlock() }
+        keys.removeValue(forKey: endpoint)
+        try persist()
+        if !key.isEmpty { keys[endpoint] = key }
+    }
+}
+
+/// Durable ownership is separate from the process cache: tasks only read the
+/// application's own item, while settings can import the legacy item once.
+struct ApplicationCredentials {
+    static let service = "app.generalist.mac.credentials.v2"
+    static let legacyService = "app.generalist.model-api"
+    var readItem: (_ service: String, _ account: String, _ interactive: Bool) throws -> String?
+    var writeItem: (_ account: String, _ key: String) throws -> Void
+
+    func read(_ account: String) throws -> String {
+        try readItem(Self.service, account, false) ?? ""
+    }
+
+    func prepareForSettings(_ account: String) throws -> String {
+        if let key = try readItem(Self.service, account, true) {
+            try verify(key, account: account)
+            return key
+        }
+        guard let legacy = try readItem(Self.legacyService, account, true) else { return "" }
+        try save(legacy, account: account)
+        return legacy
+    }
+
+    func save(_ key: String, account: String) throws {
+        try writeItem(account, key)
+        // Verify against the persistent store, never the memory cache. A saved
+        // configuration must work with the same noninteractive policy as tasks.
+        try verify(key, account: account)
+    }
+
+    private func verify(_ key: String, account: String) throws {
+        guard try readItem(Self.service, account, false) == key else {
+            throw AppError.message(L("凭据保存后验证失败，请在设置中重新保存 API Key。"))
+        }
+    }
+}
+
 enum CredentialStore {
-    static func query(_ endpoint: String) -> [String: Any] {
+    private static let sessionCache = CredentialSessionCache()
+    private static let repository = ApplicationCredentials(readItem: readFromKeychain, writeItem: saveToKeychain)
+    // File-based login Keychain ignores LAContext's no-UI flag. Scope the legacy
+    // API's process-wide flag to serialized Security calls and restore it even on
+    // failure. Never change the user's keychain lock settings or broad trust ACLs.
+    private static let keychainLock = NSRecursiveLock()
+    private static func withInteraction<T>(_ allowed: Bool, _ body: () throws -> T) throws -> T {
+        keychainLock.lock(); defer { keychainLock.unlock() }
+        var previous: DarwinBoolean = true
+        try check(SecKeychainGetUserInteractionAllowed(&previous))
+        try check(SecKeychainSetUserInteractionAllowed(allowed))
+        defer { SecKeychainSetUserInteractionAllowed(previous.boolValue) }
+        return try body()
+    }
+    private static func query(_ service: String, _ account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: "app.generalist.model-api",
-         kSecAttrAccount as String: endpoint]
+         kSecAttrService as String: service,
+         kSecAttrAccount as String: account]
     }
     static func read(_ endpoint: String) throws -> String {
-        var q = query(endpoint)
-        q[kSecReturnData as String] = true; q[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(q as CFDictionary, &result)
-        if status == errSecItemNotFound { return "" }
-        guard status == errSecSuccess else { throw AppError.message(L("无法读取钥匙串（%@）。请在设置中重新保存 API Key。", String(describing: status))) }
-        return (result as? Data).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        try sessionCache.read(endpoint) { try repository.read(endpoint) }
+    }
+    /// Only the explicit settings flow may request migration/repair authorization.
+    static func readForSettings(_ endpoint: String) throws -> String {
+        try sessionCache.read(endpoint) { try repository.prepareForSettings(endpoint) }
+    }
+    private static func readFromKeychain(_ service: String, _ account: String, _ interactive: Bool) throws -> String? {
+        try withInteraction(interactive) {
+            var q = query(service, account)
+            q[kSecReturnData as String] = true; q[kSecMatchLimit as String] = kSecMatchLimitOne
+            var result: CFTypeRef?
+            let status = SecItemCopyMatching(q as CFDictionary, &result)
+            if status == errSecItemNotFound { return nil }
+            try check(status)
+            guard let data = result as? Data, let key = String(data: data, encoding: .utf8) else {
+                throw AppError.message(L("凭据数据无效，请在设置中重新保存 API Key。"))
+            }
+            return key
+        }
     }
     static func save(_ key: String, endpoint: String) throws {
-        let q = query(endpoint)
-        if key.isEmpty {
-            let result = SecItemDelete(q as CFDictionary)
-            guard result == errSecSuccess || result == errSecItemNotFound else { throw AppError.message(L("无法删除钥匙串项目（%@）。", String(describing: result))) }
-            return
+        try sessionCache.save(key, endpoint: endpoint) { try repository.save(key, account: endpoint) }
+    }
+    private static func saveToKeychain(_ endpoint: String, _ key: String) throws {
+        try withInteraction(true) {
+            let q = query(ApplicationCredentials.service, endpoint)
+            // An empty value clears the secret but retains a migration tombstone:
+            // opening settings must never resurrect a deleted legacy credential.
+            let attributes = [kSecValueData as String: Data(key.utf8)]
+            var status = SecItemUpdate(q as CFDictionary, attributes as CFDictionary)
+            if status == errSecItemNotFound {
+                var access: SecAccess?
+                // nil means ONLY the calling application, not all applications.
+                try check(SecAccessCreate("OpenGCUA API Key" as CFString, nil, &access))
+                guard let access else { throw AppError.message(L("无法创建应用凭据访问权限。")) }
+                var item = q.merging(attributes) { _, new in new }
+                item[kSecAttrAccess as String] = access
+                status = SecItemAdd(item as CFDictionary, nil)
+            }
+            try check(status)
         }
-        let attributes = [kSecValueData as String: Data(key.utf8)]
-        var status = SecItemUpdate(q as CFDictionary, attributes as CFDictionary)
-        if status == errSecItemNotFound {
-            var item = q.merging(attributes) { _, new in new }
-            item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            status = SecItemAdd(item as CFDictionary, nil)
+    }
+    private static func check(_ status: OSStatus) throws {
+        guard status != errSecSuccess else { return }
+        if status == errSecInteractionNotAllowed || status == errSecAuthFailed || status == errSecUserCanceled {
+            throw AppError.message(L("凭据暂不可用。请解锁登录钥匙串，并在 OpenGCUA 设置中完成一次授权或重新保存 API Key；任务不会弹出系统授权框。"))
         }
-        guard status == errSecSuccess else { throw AppError.message(L("无法保存 API Key 到钥匙串（%@）。", String(describing: status))) }
+        throw AppError.message(L("无法访问应用凭据（%@）。请在设置中重新保存 API Key。", String(describing: status)))
     }
 }

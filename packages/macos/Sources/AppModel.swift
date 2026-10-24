@@ -279,7 +279,8 @@ enum TaskPhase: String {
             var config = try preferences.taskConfiguration()
             let endpoint = config["llm_base_url"] as! String
             let fileKey = (config["api_key"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let key = fileKey.isEmpty ? try CredentialStore.read(endpoint) : fileKey
+            let key = fileKey.isEmpty
+                ? (config["allow_empty_api_key"] as? Bool == true ? "" : try CredentialStore.read(endpoint)) : fileKey
             guard !key.isEmpty || config["allow_empty_api_key"] as? Bool == true else { delegate?.showSettings(); error = L("请在配置文件或此服务对应的钥匙串中保存 API Key。"); return }
             config["api_key"] = key
             // 只有用户显式选择才覆盖；未指定时由 host 恢复历史 Skill（含摘要校验）或使用默认值。
@@ -345,6 +346,37 @@ enum TaskPhase: String {
         } catch { phase = previousPhase; executionPhase = previousExecutionPhase; sendingMessage = wasSending; self.error = error.localizedDescription; delegate?.refreshCompact() }
     }
     func receive(_ incoming: [String: Any]) {
+        if incoming["event"] as? String == "mcp_configuration", let id = incoming["id"] as? String {
+            var response: [String: Any] = ["command": "mcp_configuration", "id": id]
+            do { response["config"] = try MCPOperationConfiguration.load(preferences: preferences) }
+            catch { response["error"] = error.localizedDescription }
+            try? bridge.send(response)
+            return
+        }
+        if incoming["event"] as? String == "mcp_operation_started", let id = incoming["task_id"] as? String {
+            persistCurrent()
+            resetSessionControls()
+            taskID = id; conversationID = id; conversationOpen = true
+            currentTurnInstruction = incoming["text"] as? String ?? ""
+            taskTitle = currentTurnInstruction
+            conversationTurns = []; conversationMessages = []; runPath = ""; resumeRunPath = ""
+            messageDraft = ""; messageStatus = ""; sentMessages = [:]; sentMessageOrder = []
+            sendingMessage = false; awaitingMessageID = ""
+            appendChat(id: id + ":initial", text: currentTurnInstruction, isUser: true)
+            question = ""; reply = ""; answer = ""; intent = ""; error = ""; step = 0
+            executionPhase = ""; recentAction = ""
+            overlayInteractions.removeAll(); overlayOcclusions.removeAll()
+            controls.turnStartedAt = Date()
+            phase = .starting
+            delegate?.collapse(automatically: true)
+            persistCurrent()
+            return
+        }
+        if incoming["event"] as? String == "mcp_operation_finished", incoming["task_id"] as? String == taskID {
+            let state = incoming["state"] as? String ?? "failed"
+            finish(TaskPhase(rawValue: state) ?? .failed, text: incoming["text"] as? String ?? "")
+            return
+        }
         let envelope = NativeEventEnvelope(fields: incoming)
         guard envelope.supported else {
             error = L("事件信封无效或版本不支持（schema_version：%@）；已忽略，不改变执行端状态。", NativeEventEnvelope.diagnostic(incoming["schema_version"]))

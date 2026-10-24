@@ -14,7 +14,7 @@ import UniformTypeIdentifiers
     private let saveKey: (String, String) throws -> Void
     private let savePreferences: (Preferences) -> Void
 
-    init(model: AppModel, readKey: @escaping (String) throws -> String = CredentialStore.read,
+    init(model: AppModel, readKey: @escaping (String) throws -> String = CredentialStore.readForSettings,
          saveKey: @escaping (String, String) throws -> Void = CredentialStore.save,
          savePreferences: @escaping (Preferences) -> Void = { $0.save() }) {
         self.model = model; draft = model.preferences
@@ -31,6 +31,10 @@ import UniformTypeIdentifiers
         if includeVoice { model.refreshAudioInputs(); loadSpeechKey() }
     }
     func loadModelKey() {
+        if fileHasKey || configuration?["allow_empty_api_key"] as? Bool == true {
+            modelKey = ""; loadedModelAccount = ""
+            return
+        }
         do { modelKey = try readKey(modelAccount); loadedModelAccount = modelAccount }
         catch { modelKey = ""; loadedModelAccount = ""; self.error = error.localizedDescription }
     }
