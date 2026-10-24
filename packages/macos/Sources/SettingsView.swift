@@ -19,6 +19,7 @@ import SwiftUI
                 general.tabItem { Label(L("通用"), systemImage: "slider.horizontal.3") }
                 ModelSettingsForm(editor: editor).tabItem { Label(L("模型"), systemImage: "server.rack") }
                 permissions.tabItem { Label(L("权限"), systemImage: "hand.raised") }
+                MCPIntegrationView().tabItem { Label("MCP", systemImage: "puzzlepiece.extension") }
                 voice.tabItem { Label(L("语音"), systemImage: "waveform") }
             }.padding(.top, 8).id(model.preferences.language)
             if !settingsError.isEmpty {

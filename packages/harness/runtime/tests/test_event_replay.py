@@ -515,7 +515,7 @@ def test_same_recorded_events_reach_real_swift_app_model(fanout, tmp_path):
     macos = Path(__file__).resolve().parents[3] / "macos"
     sources = [macos / "Sources" / f"{name}.swift" for name in (
         "Localization", "AudioInputDevices", "VoiceTaskTools", "Settings", "SpeechInput",
-        "QwenSpeechInput", "AppModel", "SessionControls")]
+        "QwenSpeechInput", "AppModel", "MCPOperationConfiguration", "SessionControls")]
     binary = tmp_path / "recorded-swift-contracts"
     compiled = subprocess.run([shutil.which("swiftc"), "-swift-version", "5", *map(str, sources),
                                str(macos / "tests" / "VoiceRouterContracts.swift"), "-o", str(binary)],

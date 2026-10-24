@@ -210,6 +210,9 @@ absolute directories can be listed in `skills_dirs` in `local.json`. See the
 
 ## Native macOS app
 
+To connect the installed app to Codex, see the [MCP connection guide (中文)](packages/mcp/CONNECT.zh-CN.md)
+or the [MCP reference](packages/mcp/README.md). MCP is bundled; model-driven UI operations reuse the app's model settings and credentials.
+
 [OpenGCUA for macOS](packages/macos/README.md) implements the menu bar assistant:
 enter a task, collapse into a floating control panel, reply to questions, and
 review saved results. SwiftUI + AppKit, with Python, the SDK and signed CuaDriver
@@ -246,6 +249,10 @@ asyncio.run(main())   # open TextEdit first
 It has adapters for macOS, Android, browsers, and Linux, built on a Rust core with Python bindings.
 The [source setup above](#quick-start) installs it. The package is `qwen-intelligence-sdk`, imported as `qwen_intelligence`
 (`mai_ui` is the same API under its internal name). See [`packages/sdk/`](packages/sdk/) and the [examples](packages/sdk/examples/src/).
+
+For Codex, the [bundled MCP adapter](packages/mcp/) exposes stateful macOS observation
+and input tools through OpenGCUA.app, sharing its installation and system permissions.
+Connect in **Settings → MCP**, or run `bash packages/mcp/install_codex.sh`.
 
 <a name="open-stack"></a>
 

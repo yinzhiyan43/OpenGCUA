@@ -1,0 +1,3 @@
+# Bundle dependency; the local SDK and adapter wheels are installed separately.
+mcp==1.30.0
+pyobjc-framework-Cocoa==12.2.2

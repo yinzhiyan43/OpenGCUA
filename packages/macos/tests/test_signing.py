@@ -3,6 +3,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 import subprocess
+import tempfile
 
 spec = importlib.util.spec_from_file_location("signing", Path(__file__).parents[1] / "scripts/signing.py")
 signing = importlib.util.module_from_spec(spec)
@@ -10,6 +11,21 @@ spec.loader.exec_module(signing)
 
 
 class SigningSelectionTests(unittest.TestCase):
+    def test_local_certificate_requires_explicit_or_pinned_selection(self):
+        with tempfile.TemporaryDirectory() as root:
+            with self.assertRaisesRegex(ValueError, "explicit or pinned"):
+                signing.resolve_identity(None, Path(root), allow_local=True)
+            with self.assertRaises(ValueError):
+                signing.resolve_identity("-", Path(root), allow_local=True)
+
+    def test_local_discovery_never_includes_revoked_or_expired_certificates(self):
+        output = ('1) ' + 'A' * 40 + ' "Local" (CSSMERR_TP_NOT_TRUSTED)\n'
+                  '2) ' + 'B' * 40 + ' "Revoked" (CSSMERR_TP_CERT_REVOKED)\n'
+                  '3) ' + 'C' * 40 + ' "Expired" (CSSMERR_TP_CERT_EXPIRED)\n')
+        with patch.object(signing.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, output, "")):
+            self.assertEqual(signing.available_identities(allow_local=True), {"A" * 40: "Local"})
+            self.assertEqual(signing.available_identities(), {})
+
     def test_timestamp_failure_retries_without_weakening_signing(self):
         passed = subprocess.CompletedProcess([], 0, "", "")
         for message in ("The timestamp service is not available.",

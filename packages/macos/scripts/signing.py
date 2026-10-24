@@ -23,10 +23,17 @@ def sign(*arguments):
         raise RuntimeError(result.stderr.strip() or "Code signing failed.")
 
 
-def available_identities():
-    result = subprocess.run(["security", "find-identity", "-v", "-p", "codesigning"],
+def available_identities(allow_local=False):
+    command = ["security", "find-identity", "-p", "codesigning"]
+    if not allow_local:
+        command.append("-v")
+    result = subprocess.run(command,
                             check=True, capture_output=True, text=True)
-    return dict(re.findall(r'\b([0-9A-Fa-f]{40})\s+"([^"\n]+)"', result.stdout))
+    # A deliberately selected self-signed certificate may be untrusted, but
+    # expired/revoked identities must never be included in this local option.
+    rows = [line for line in result.stdout.splitlines()
+            if "CSSMERR" not in line or (allow_local and "CSSMERR_TP_NOT_TRUSTED" in line)]
+    return dict(re.findall(r'\b([0-9A-Fa-f]{40})\s+"([^"\n]+)"', "\n".join(rows)))
 
 
 def select_identity(requested, identities, saved=None, require_stable=False):
@@ -54,10 +61,12 @@ def select_identity(requested, identities, saved=None, require_stable=False):
     return "-"
 
 
-def resolve_identity(requested, build: Path, require_stable=False):
+def resolve_identity(requested, build: Path, require_stable=False, allow_local=False):
     pin = build / "signing-identity.json"
     saved = json.loads(pin.read_text())["identity"] if pin.exists() else None
-    identities = available_identities()
+    if allow_local and (not (requested or saved) or requested == "-"):
+        raise ValueError("Local signing requires an explicit or pinned certificate; ad-hoc signing is not allowed.")
+    identities = available_identities(allow_local)
     identity = select_identity(requested, identities, saved, require_stable)
     if identity == "-":
         print("WARNING: ad-hoc signing changes the app's code identity on rebuild. "

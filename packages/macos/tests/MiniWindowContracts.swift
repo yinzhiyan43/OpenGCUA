@@ -23,6 +23,15 @@ import AppKit
 }
 
 @main enum MiniWindowContracts {
+    @MainActor static func waitUntil(_ message: String, _ condition: () -> Bool) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while !condition() {
+            precondition(clock.now < deadline, message)
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+
     @MainActor static func main() async throws {
         _ = NSApplication.shared
         let panel = RecordingPanel(contentRect: NSRect(x: 30, y: 40, width: 320, height: 110),
@@ -130,14 +139,12 @@ import AppKit
         try await Task.sleep(nanoseconds: 45_000_000)
         precondition(!hover.expanded, "A cursor merely crossing the icon must not open details")
         hover.hover(true)
-        try await Task.sleep(nanoseconds: 45_000_000)
-        precondition(hover.expanded)
+        try await waitUntil("Hover must expand details") { hover.expanded }
         hover.keepExpanded = { true }; hover.hover(false)
         try await Task.sleep(nanoseconds: 45_000_000)
         precondition(hover.expanded, "Editing and menu tracking must keep details accessible")
         hover.keepExpanded = { false }; hover.hover(false)
-        try await Task.sleep(nanoseconds: 45_000_000)
-        precondition(!hover.expanded)
+        try await waitUntil("Leaving must collapse details after the exit delay") { !hover.expanded }
         hover.hover(true); hover.update(requested: true, suppressed: true)
         try await Task.sleep(nanoseconds: 45_000_000)
         precondition(!hover.expanded, "Execution cancels pending expansion")
@@ -145,8 +152,7 @@ import AppKit
         try await Task.sleep(nanoseconds: 45_000_000)
         precondition(!hover.expanded, "Dragging cannot resize the window under the pointer")
         hover.drag(false); hover.hover(true)
-        try await Task.sleep(nanoseconds: 45_000_000)
-        precondition(hover.expanded)
+        try await waitUntil("Hover must expand details after dragging ends") { hover.expanded }
         hover.dismiss(); hover.hover(true)
         try await Task.sleep(nanoseconds: 45_000_000)
         precondition(!hover.expanded, "Escape stays collapsed until the pointer leaves")
@@ -156,17 +162,14 @@ import AppKit
         if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             let fading = MiniWindowPresentation(enterDelay: 0, exitDelay: 0, fadeDuration: 80_000_000)
             fading.update(requested: true, suppressed: false); fading.hover(true)
-            try await Task.sleep(nanoseconds: 15_000_000)
-            precondition(fading.expanded && fading.detailsVisible)
+            try await waitUntil("Hover must reveal the fading card") { fading.expanded && fading.detailsVisible }
             fading.hover(false)
-            try await Task.sleep(nanoseconds: 15_000_000)
-            precondition(fading.expanded && !fading.detailsVisible, "Fade the card before shrinking its window")
+            try await waitUntil("Leaving must start fading the card") { !fading.detailsVisible }
+            precondition(fading.expanded, "Fade the card before shrinking its window")
             fading.hover(true)
-            try await Task.sleep(nanoseconds: 15_000_000)
             precondition(fading.expanded && fading.detailsVisible, "Re-entry reverses the fade without remounting or moving the badge")
             fading.hover(false)
-            try await Task.sleep(nanoseconds: 110_000_000)
-            precondition(!fading.expanded && !fading.detailsVisible)
+            try await waitUntil("The faded card must finish collapsing") { !fading.expanded && !fading.detailsVisible }
         }
         let visibility = MiniWindowPresentation(enterDelay: 0, exitDelay: 0)
         visibility.update(requested: true, suppressed: false)

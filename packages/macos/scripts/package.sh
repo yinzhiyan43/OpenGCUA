@@ -21,6 +21,7 @@ if [[ -n "${NOTARY_PROFILE:-}" ]]; then
   spctl --assess --type execute --verbose "$app"
 fi
 ditto "$app" "$stage/OpenGCUA.app"
+cp ../mcp/CONNECT.zh-CN.md "$stage/MCP连接说明.md"
 ln -s /Applications "$stage/Applications"
 hdiutil create -volname "OpenGCUA" -srcfolder "$stage" -fs HFS+ \
   -format UDZO -imagekey zlib-level=9 -ov "$archive"

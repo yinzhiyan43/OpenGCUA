@@ -1,0 +1,17 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>OpenGCUA MCP editor regression</title>
+<style>body{font:17px system-ui;margin:24px;background:#f3f5f7;color:#17202a}section{background:white;padding:16px;margin:12px 0;max-width:1100px}textarea,[contenteditable]{box-sizing:border-box;width:100%;min-height:90px;padding:10px;border:2px solid #607d8b;font:20px system-ui}p{margin:6px 0}#state{font:14px monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-width:1150px}</style>
+<h1>OpenGCUA MCP editor regression</h1>
+<section><label for="plain">MCP regression textarea</label><textarea id="plain" rows="3">第一行 OpenGCUA 😀
+第二行 replace this text</textarea></section>
+<section><label id="richLabel">MCP regression rich editor</label><div id="rich" contenteditable="true" role="textbox" aria-labelledby="richLabel" aria-multiline="true"><p><strong>富文本第一行 Rich text 😀</strong></p><p><em>第二行：全部替换 this content</em></p></div></section>
+<p id="state" aria-live="polite"></p>
+<script>
+const plain=document.getElementById('plain'),rich=document.getElementById('rich');
+function report(){
+ const s=getSelection();let selected='';
+ if(s.rangeCount&&rich.contains(s.anchorNode)&&rich.contains(s.focusNode))selected=s.getRangeAt(0).cloneContents().textContent;
+ document.getElementById('state').textContent='MCP_EDITOR_STATE '+JSON.stringify({fixture:'opengcua-editor-regression-v1',textarea:plain.value,rich:rich.innerText,richHTML:rich.innerHTML,richSelected:selected,richTextContent:rich.textContent,active:document.activeElement.id,textareaAll:plain.selectionStart===0&&plain.selectionEnd===plain.value.length,richAll:selected.length>0&&selected===rich.textContent});
+}
+for(const el of [plain,rich])for(const ev of ['input','select','keyup','focus'])el.addEventListener(ev,report);
+document.addEventListener('selectionchange',report);report();
+</script></html>

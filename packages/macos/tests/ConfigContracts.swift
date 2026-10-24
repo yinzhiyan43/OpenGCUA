@@ -3,7 +3,7 @@ import Foundation
 enum AppError: Error { case message(String) }
 
 @main enum ConfigContracts {
-    static func main() throws {
+    @MainActor static func main() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -40,7 +40,94 @@ enum AppError: Error { case message(String) }
         try preferences.validateTaskCredentials(manualKey: "", readKey: { _ in "fixture" })
         preferences.allowEmptyKey = true
         try preferences.validateTaskCredentials(manualKey: "", readKey: { _ in preconditionFailure("Unnecessary key lookup") })
+        let noAuth = try MCPOperationConfiguration.load(preferences: preferences,
+            readKey: { _ in preconditionFailure("No-auth MCP must not open Keychain") })
+        precondition(noAuth["api_key"] as? String == "")
         preferences.allowEmptyKey = false
+        let cache = CredentialSessionCache()
+        var reads = 0
+        let readKey: (String) throws -> String = { endpoint in
+            cache.read(endpoint) { reads += 1; return "fixture-" + endpoint }
+        }
+        let taskOne = try MCPOperationConfiguration.load(preferences: preferences, readKey: readKey)
+        let taskTwo = try MCPOperationConfiguration.load(preferences: preferences, readKey: readKey)
+        precondition(reads == 1 && taskOne["api_key"] as? String == taskTwo["api_key"] as? String,
+                     "Repeated tasks must reuse one authorized read")
+        let account = preferences.normalizedEndpoint
+        _ = try readKey("https://other.example/v1")
+        precondition(reads == 2, "Credentials must remain isolated by endpoint")
+        cache.save("updated", endpoint: account) {}
+        let updatedKey = try readKey(account)
+        precondition(updatedKey == "updated" && reads == 2)
+        cache.save("", endpoint: account) {}
+        _ = try readKey(account)
+        precondition(reads == 3, "Deleting a key must discard the cached credential")
+        do {
+            try cache.save("bad", endpoint: account) { throw AppError.message("save refused") }
+            preconditionFailure("Failed save accepted")
+        } catch {}
+        _ = try readKey(account)
+        precondition(reads == 4, "Failed replacement must not retain the previous credential")
+        let retryCache = CredentialSessionCache()
+        do {
+            _ = try retryCache.read(account) { throw AppError.message("read refused") }
+            preconditionFailure("Failed read accepted")
+        } catch {}
+        precondition(retryCache.read(account) { "" } == "")
+        precondition(retryCache.read(account) { "authorized" } == "authorized",
+                     "Refused and missing credentials must not be cached")
+        precondition(CredentialSessionCache().read(account) { "fresh session" } == "fresh session")
+        // A persistent store must work with a completely fresh process cache.
+        // Runtime reads never visit the legacy service or allow interactive UI.
+        var persisted = [ApplicationCredentials.legacyService: [account: "legacy-fixture"]]
+        var accesses: [(String, Bool)] = []
+        var denyRead = false
+        var denyWrite = false
+        let durable = ApplicationCredentials(readItem: { service, endpoint, interactive in
+            accesses.append((service, interactive))
+            if denyRead { throw AppError.message("locked") }
+            return persisted[service]?[endpoint]
+        }, writeItem: { endpoint, key in
+            if denyWrite { throw AppError.message("save refused") }
+            persisted[ApplicationCredentials.service, default: [:]][endpoint] = key
+        })
+        let beforeMigration = try durable.read(account)
+        precondition(beforeMigration.isEmpty && accesses.count == 1 && !accesses[0].1)
+        precondition(accesses[0].0 == ApplicationCredentials.service)
+        let migrated = try durable.prepareForSettings(account)
+        precondition(migrated == "legacy-fixture")
+        precondition(persisted[ApplicationCredentials.legacyService]?[account] == "legacy-fixture",
+                     "Migration must preserve the old item for recovery")
+        precondition(accesses.last?.1 == false, "Migration must prove a noninteractive persistent read")
+        accesses.removeAll()
+        let coldRead = try CredentialSessionCache().read(account) { try durable.read(account) }
+        precondition(coldRead == "legacy-fixture" && accesses.count == 1 && !accesses[0].1)
+        try durable.save("replaced", account: account)
+        let coldReplaced = try CredentialSessionCache().read(account) { try durable.read(account) }
+        precondition(coldReplaced == "replaced")
+        try durable.save("", account: account)
+        accesses.removeAll()
+        let cleared = try durable.prepareForSettings(account)
+        precondition(cleared.isEmpty && accesses.allSatisfy { $0.0 == ApplicationCredentials.service },
+                     "Cleared keys must not be resurrected from the legacy item")
+        denyRead = true; accesses.removeAll()
+        do { _ = try durable.read(account); preconditionFailure("Locked store accepted") } catch {}
+        precondition(accesses.count == 1 && !accesses[0].1, "A task must fail without interactive retry")
+        denyRead = false; denyWrite = true
+        let otherAccount = "https://migration.example/v1"
+        persisted[ApplicationCredentials.legacyService, default: [:]][otherAccount] = "recoverable"
+        do { _ = try durable.prepareForSettings(otherAccount); preconditionFailure("Failed migration accepted") } catch {}
+        precondition(persisted[ApplicationCredentials.service]?[otherAccount] == nil)
+        precondition(persisted[ApplicationCredentials.legacyService]?[otherAccount] == "recoverable")
+        denyWrite = false; accesses.removeAll()
+        let isolated = try durable.read(otherAccount)
+        precondition(isolated.isEmpty && accesses.count == 1 && !accesses[0].1)
+        let unreadable = ApplicationCredentials(readItem: { _, _, interactive in
+            if !interactive { throw AppError.message("authorization required") }
+            return "fixture"
+        }, writeItem: { _, _ in })
+        do { try unreadable.save("fixture", account: account); preconditionFailure("Save without silent readback accepted") } catch {}
+        do { _ = try unreadable.prepareForSettings(account); preconditionFailure("Unusable authorization cached") } catch {}
         let defaults = try preferences.taskConfiguration()
         precondition(defaults["reasoning_effort"] as? String == "low")
         preferences.reasoningEffort = "medium"
